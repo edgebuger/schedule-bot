@@ -54,10 +54,21 @@ class Lesson:
     teacher: str = ""
     room: str = ""
     status: str = ""
+    was_subject: str = ""
+    was_teacher: str = ""
 
     @property
     def mark(self) -> str:
         return STATUS_MARKS.get(self.status, "")
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self.status == "cancelled"
+
+    @property
+    def title(self) -> str:
+        """Название пары: у отменённой берём то, что было вместо неё."""
+        return self.subject or self.was_subject
 
 
 # --- сетевая часть --------------------------------------------------------
@@ -168,10 +179,16 @@ def get_day_lessons(day: dt.date | None = None, data: dict | None = None) -> lis
 
     lessons: list[Lesson] = []
     for row in rows:
-        if row.get("empty"):
+        status = (row.get("status") or "").strip()
+        before = row.get("before") or {}
+
+        # Пустая пара: показываем, только если её явно отменили.
+        if row.get("empty") and status != "cancelled":
             continue
+
         slot = row.get("slot")
         start, end = BELLS.get(slot, ("", ""))
+
         lessons.append(
             Lesson(
                 number=str(row.get("printed_pair") or slot or ""),
@@ -180,7 +197,9 @@ def get_day_lessons(day: dt.date | None = None, data: dict | None = None) -> lis
                 subject=(row.get("subject") or "").strip(),
                 teacher=(row.get("teacher") or "").strip(),
                 room=(row.get("room") or "").strip(),
-                status=(row.get("status") or "").strip(),
+                status=status,
+                was_subject=(before.get("subject") or "").strip(),
+                was_teacher=(before.get("teacher") or "").strip(),
             )
         )
     return lessons
@@ -195,17 +214,3 @@ def get_week(monday: dt.date | None = None, data: dict | None = None) -> dict[in
         day = monday + dt.timedelta(days=offset)
         week[offset] = get_day_lessons(day, data)
     return week
-
-
-def changes_for(day: dt.date, data: dict | None = None) -> list[str]:
-    """Тексты замен, которые коснулись группы в этот день."""
-    data = data if data is not None else fetch_data()
-    key = day.isoformat()
-    out: list[str] = []
-    for item in data.get("replacements", []):
-        if item.get("date") != key:
-            continue
-        reason = item.get("reason") or ""
-        pair = item.get("to_pair") or item.get("from_pair") or ""
-        out.append(f"Пара {pair}: {reason}" if reason else f"Пара {pair}: замена")
-    return out

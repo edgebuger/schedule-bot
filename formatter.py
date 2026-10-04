@@ -6,7 +6,7 @@ import datetime as dt
 from html import escape
 
 from config import GROUP
-from parser import Lesson, changes_for
+from parser import Lesson
 
 WEEKDAYS = (
     "Понедельник", "Вторник", "Среда",
@@ -23,6 +23,20 @@ def _esc(text: str) -> str:
     return escape(text, quote=False)
 
 
+def _time_label(lesson: Lesson) -> str:
+    return f"🕐 {lesson.start}–{lesson.end}" if lesson.start and lesson.end else ""
+
+
+def _was_label(lesson: Lesson) -> str:
+    """Строка «раньше было...» — только если предмет реально меняли."""
+    if lesson.is_cancelled or not lesson.was_subject:
+        return ""
+    if lesson.was_subject == lesson.subject:
+        return ""
+    teacher = f" ({_esc(lesson.was_teacher)})" if lesson.was_teacher else ""
+    return f"🔁 раньше: {_esc(lesson.was_subject)}{teacher}"
+
+
 def format_day(lessons: list[Lesson], day: dt.date) -> str:
     header = f"📅 {WEEKDAYS[day.weekday()].capitalize()}, {day.day} {MONTHS[day.month - 1]}"
 
@@ -33,26 +47,30 @@ def format_day(lessons: list[Lesson], day: dt.date) -> str:
 
     for index, lesson in enumerate(lessons, start=1):
         number = lesson.number if lesson.number.isdigit() else str(index)
-        mark = f" {lesson.mark}" if lesson.mark else ""
-        blocks.append(f"<b>{number}. {_esc(lesson.subject)}{mark}</b>")
 
-        details: list[str] = []
-        if lesson.start and lesson.end:
-            details.append(f"🕐 {lesson.start}–{lesson.end}")
+        if lesson.is_cancelled:
+            blocks.append(
+                f"<b>{number}. {_esc(lesson.title)} ❌ отменена</b>\n"
+                f"   {_time_label(lesson)}".rstrip()
+            )
+            continue
+
+        mark = f" {lesson.mark}" if lesson.mark else ""
+        blocks.append(f"<b>{number}. {_esc(lesson.title)}{mark}</b>")
+
+        details = [_time_label(lesson)]
         if lesson.room:
             details.append(f"📍 {_esc(lesson.room)}")
+        details = [item for item in details if item]
         if details:
             blocks.append("   " + "   ".join(details))
 
         if lesson.teacher:
             blocks.append(f"   👤 {_esc(lesson.teacher)}")
 
-    try:
-        notes = changes_for(day)
-    except Exception:  # noqa: BLE001 — заметки не должны ломать сообщение
-        notes = []
-    if notes:
-        blocks.append("🔁 <i>Замены: " + "; ".join(_esc(n) for n in notes) + "</i>")
+        was = _was_label(lesson)
+        if was:
+            blocks.append(f"   {was}")
 
     return "\n\n".join(blocks)
 
@@ -71,13 +89,18 @@ def format_week(days: dict[int, list[Lesson]], monday: dt.date) -> str:
             chunks.append(f"<b>{WEEKDAYS[weekday]}, {date_label}</b> — пар нет")
             continue
 
-        items = []
+        items: list[str] = []
         for index, lesson in enumerate(lessons, start=1):
             number = lesson.number if lesson.number.isdigit() else str(index)
-            time_label = f" {lesson.start}–{lesson.end}" if lesson.start and lesson.end else ""
+            time_label = f" {_time_label(lesson)}" if _time_label(lesson) else ""
+
+            if lesson.is_cancelled:
+                items.append(f"   {number}. {_esc(lesson.title)} ❌ отменена")
+                continue
+
             mark = f" {lesson.mark}" if lesson.mark else ""
             room = f" · {lesson.room}" if lesson.room else ""
-            items.append(f"   {number}. {_esc(lesson.subject)}{mark}{time_label}{room}")
+            items.append(f"   {number}. {_esc(lesson.title)}{mark}{time_label}{room}")
 
         chunks.append(f"<b>{WEEKDAYS[weekday]}, {date_label}</b>\n" + "\n".join(items))
 
