@@ -1,0 +1,65 @@
+name: Бот с расписанием ВСАМК
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_digest:
+        description: 'Разослать расписание сейчас'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schedule-bot
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости
+        run: |
+          pip install --quiet --upgrade pip
+          pip install --quiet -r requirements.txt
+
+      - name: Запустить бота
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GROUP: 'ОММ-102'
+          SEND_TIME: '06:00'
+          TIMEZONE: 'Asia/Yekaterinburg'
+          COLLEGE_TIMEZONE: 'Asia/Yekaterinburg'
+          SEND_ON_WEEKENDS: '0'
+          SEND_EMPTY_DAYS: '1'
+        run: |
+          if [ "${{ inputs.force_digest }}" = "true" ]; then
+            python main.py --force-digest
+          else
+            python main.py
+          fi
+
+      - name: Сохранить состояние
+        run: |
+          git config user.name "schedule-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state.json
+          if git diff --staged --quiet; then
+            echo "state.json без изменений"
+          else
+            git commit -m "state: $(date -u +%FT%TZ)"
+            git push
+          fi
